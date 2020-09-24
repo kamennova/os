@@ -1,13 +1,12 @@
-import { fill_string } from "../helpers";
+import { fillString } from "../helpers";
 
-const WORD_SIZE_BITS = 8;
 const HEADER_SIZE_BYTES = 3;
 
 type Address = number;
 
 type BlockHeader = {
     size: number, // in bytes
-    is_free: boolean,
+    isFree: boolean,
     prev: Address | null,
 }
 
@@ -24,130 +23,94 @@ type Block = {
  * n bytes - data
  */
 export class Allocator {
-    static getSizeBytes = (bits: number): number => Math.ceil(bits / WORD_SIZE_BITS);
+    static getSizeBytes = (bits: number): number => Math.ceil(bits / 8);
+
     view: DataView;
 
     topBlock: Address | null = null;
-    heapStart: Address = 0;
-    heapSize: number;
+    stackStart: Address = 0;
+    stackSize: number;
 
     constructor(buffer: ArrayBuffer) {
         this.view = new DataView(buffer);
-        this.heapSize = buffer.byteLength;
+        this.stackSize = buffer.byteLength;
     }
 
-    mem_realloc(addr: Address, size_bits: number): Address | null {
-        const new_addr = this.mem_alloc(size_bits);
+    public memRealloc(addr: Address, sizeBits: number): Address | null {
+        const newAddr = this.memAlloc(sizeBits);
 
-        if (new_addr !== null) {
-            this.mem_copy(addr, new_addr);
-            this.mem_free(addr);
+        if (newAddr !== null) {
+            this.memCopy(addr, newAddr);
+            this.memFree(addr);
         }
 
-        return new_addr;
+        return newAddr;
     }
 
-    mem_copy(src: Address, dest: Address) {
-        const data = this.get_block(src).data;
-        const block_size = this.get_block(dest).header.size;
+    public memFree(addr: Address): void {
+        const block = this.getBlock(addr);
+        const prev = this.getBlock(block.header.prev);
+        const next = this.getBlockNext(addr);
 
-        this.set_data(block_size, dest + 3, data);
-    }
-
-    mem_free(addr: Address): void {
-        const block = this.get_block(addr);
-
-        this.set_data(block.header.size, addr + 3, 0);
-        this.view.setInt8(addr + 1, 1);
+        if (prev.header.isFree && next.header.isFree) {
+            const newBlockSize = prev.header.size + block.header.size + next.header.size + HEADER_SIZE_BYTES * 2;
+            this.expandBlock(block.header.prev, newBlockSize);
+        } else if (prev.header.isFree) {
+            const newBlockSize = prev.header.size + block.header.size + HEADER_SIZE_BYTES;
+            this.expandBlock(block.header.prev, newBlockSize);
+        } else if (next.header.isFree) {
+            const newBlockSize = block.header.size + next.header.size + HEADER_SIZE_BYTES;
+            this.expandBlock(addr, newBlockSize);
+        } else {
+            this.setBlockData(block.header.size, addr, 0);
+            this.setIsFree(addr, true);
+        }
     };
 
-    mem_dump(): void {
+    public expandBlock(addr: Address, newSize): void {
+        this.setSize(addr, newSize);
+        this.setBlockData(newSize, addr, 0);
+        this.setIsFree(addr, true);
+
+        const next = addr + HEADER_SIZE_BYTES + newSize;
+        this.setPrev(next, addr);
+    }
+
+    public memDump(): void {
         console.log("=====MEM DUMP=====");
-        console.log(`SIZE: ${this.heapSize}B FREE: ${this.heapSize - this.heapStart}B`);
+        console.log(`SIZE: ${this.stackSize}B FREE: ${this.stackSize - this.stackStart}B`);
 
         if (this.topBlock == null) {
             console.log('No blocks created yet');
         } else {
-            let curr_addr = this.topBlock;
-            console.log('ADR SIZE      STATE   PREV DATA');
-
-            while (curr_addr !== null) {
-                const block = this.get_block(curr_addr);
-                console.log(` ${curr_addr} | ${block.header.size} + 3 B | ${block.header.is_free ? 'free ' : 'taken'}` +
-                    ` | ${block.header.prev} | ${block.data}`);
-
-                curr_addr = block.header.prev;
-            }
+            this.dumpBlocks();
         }
 
         console.log("==================");
     }
 
-    has_free_space(size_bits: number): boolean {
-        return this.heapStart + size_bits + HEADER_SIZE_BYTES <= this.heapSize;
-    }
+    public memAlloc(sizeBits: number): Address | null {
+        console.log('Allocating ' + sizeBits + ' bits');
+        const size = Allocator.getSizeBytes(sizeBits);
 
-    mem_alloc(size_bits: number): Address | null {
-        console.log('Allocating ' + size_bits + ' bits');
+        const freeBlockAddr = this.findFreeBlock(size);
 
-        const size = Allocator.getSizeBytes(size_bits);
-
-        if (this.has_free_space(size)) {
-            const alloc_addr = this.heapStart;
-
-            this.create_block(alloc_addr, size, this.topBlock || 0);
-
-            this.topBlock = alloc_addr;
-            this.heapStart += size + HEADER_SIZE_BYTES;
-
-            return alloc_addr;
-        } else {
-            const alloc_addr = this.find_free_block(size);
-
-            if (alloc_addr == null) {
-                return null;
-            }
-
-            this.allocate(alloc_addr);
-
-            return alloc_addr;
-        }
-    }
-
-    create_block(addr: Address, size: number, prev: Address = 0): void {
-        this.view.setInt8(addr, size); // set size
-        this.view.setInt8(addr + 1, 0); // set is free
-        this.view.setInt8(addr + 2, prev);
-    }
-
-    allocate(addr: Address): void {
-        this.view.setInt8(addr + 1, 0); // set is free
-    }
-
-    get_block(addr: Address): Block | null {
-        const size = this.view.getInt8(addr);
-
-        if (size == 0) {
-            return null;
+        if (freeBlockAddr !== null) {
+            return this.allocateInBlock(freeBlockAddr, size);
         }
 
-        return {
-            header: {
-                size,
-                is_free: this.view.getInt8(addr + 1) == 1,
-                prev: addr == 0 ? null : this.view.getInt8(addr + 2),
-            },
-            data: this.get_data(size, addr + 3),
-        };
+        return this.allocateInNewBlock(size);
     }
 
-    set_data(size: number, data_addr: Address, data: number) {
+    public setBlockData(size: number, addr: Address, data: number) {
+        const data_addr = addr + 3;
+
         const num_str = data.toString(2);
-        const filled = fill_string(num_str, size * WORD_SIZE_BITS, '0');
+        const filled = fillString(num_str, size * 8, '0');
 
         for (let i = 0; i < size; i++) {
-            const piece_start = size * WORD_SIZE_BITS - WORD_SIZE_BITS * (i + 1);
-            const piece = filled.slice(piece_start, piece_start + WORD_SIZE_BITS);
+            const piece_start = (size - i - 1) * 8;
+            const piece = filled.slice(piece_start, piece_start + 8);
 
             const num = parseInt(piece, 2);
 
@@ -155,7 +118,9 @@ export class Allocator {
         }
     }
 
-    get_data(size: number, data_addr: Address): number {
+    public getData(size: number, addr: Address): number {
+        const data_addr = addr + 3;
+
         let data = 0;
 
         for (let i = 0; i < size; i++) {
@@ -165,22 +130,169 @@ export class Allocator {
         return data;
     }
 
-    find_free_block(size: number): Address | null {
+    private dumpBlocks(): void {
+        console.log('ADR SIZE        STATE   PREV DATA');
+
+        let currAddr = this.topBlock;
+
+        while (currAddr !== null) {
+            const block = this.getBlock(currAddr);
+
+            const str = `${fillString(currAddr.toString(), 2, ' ')} | ` +
+                `${fillString(block.header.size.toString(), 3, ' ')} + 3 B | ` +
+                `${block.header.isFree ? 'free ' : 'taken'} | ` +
+                `${fillString(block.header.prev == null ? '-' : block.header.prev.toString(), 2, ' ')} | ` +
+                `${block.data}`;
+
+            console.log(str);
+
+            currAddr = block.header.prev;
+        }
+    }
+
+    private getBlockNext(addr: Address): Block | null {
+        let currAddr = this.topBlock;
+
+        while (currAddr !== null) {
+            const block = this.getBlock(currAddr);
+
+            if (block.header.prev === addr) {
+                return block;
+            }
+
+            currAddr = block.header.prev;
+        }
+
+        return null;
+    }
+
+    private getBlockNextAddress(addr: Address): Address | null {
+        let currAddr = this.topBlock;
+
+        while (currAddr !== null) {
+            const block = this.getBlock(currAddr);
+
+            if (block.header.prev === addr) {
+                return currAddr;
+            }
+
+            currAddr = block.header.prev;
+        }
+
+        return null;
+    }
+
+    private memCopy(src: Address, dest: Address) {
+        const data = this.getBlock(src).data;
+        const blockSize = this.getBlock(dest).header.size;
+
+        this.setBlockData(blockSize, dest, data);
+    }
+
+    private stackHasFreeSpace(sizeBits: number): boolean {
+        return this.stackStart + sizeBits + HEADER_SIZE_BYTES <= this.stackSize;
+    }
+
+    private allocateInBlock(addr: Address, size: number): Address | null {
+        const block = this.getBlock(addr);
+
+        if (block.header.size > size + HEADER_SIZE_BYTES) {
+            this.splitBlock(addr, block.header.size, size);
+        }
+
+        this.allocate(addr);
+
+        return addr;
+    }
+
+    private allocateInNewBlock(size): Address | null {
+        if (!this.stackHasFreeSpace(size)) {
+            return null;
+        }
+
+        const addr = this.stackStart;
+
+        this.createBlock(addr, size, this.topBlock || 0);
+        this.updatePointers(addr, size);
+        this.setIsFree(addr, false);
+
+        return addr;
+    }
+
+    private splitBlock(addr: Address, oldSize: number, splitSize: number) {
+        this.view.setInt8(addr, splitSize); // set updated size in block
+
+        const newBlockAddr = addr + HEADER_SIZE_BYTES + splitSize;
+        const newBlockSize = oldSize - splitSize - HEADER_SIZE_BYTES;
+
+        this.createBlock(newBlockAddr, newBlockSize, addr);
+
+        const nextAddr = this.getBlockNextAddress(addr);
+
+        if(nextAddr !== null){
+            this.setPrev(nextAddr, newBlockAddr);
+        }
+    }
+
+    private createBlock(addr: Address, size: number, prev: Address = 0): void {
+        this.setSize(addr, size);
+        this.setIsFree(addr, true);
+        this.setPrev(addr, prev);
+    }
+
+    private updatePointers(topAddr: Address, topSize: number){
+        this.topBlock = topAddr;
+        this.stackStart += topSize + HEADER_SIZE_BYTES;
+    }
+
+    private setSize(addr: Address, size: number): void {
+        this.view.setInt8(addr, size);
+    }
+
+    private setIsFree(addr: Address, isFree: boolean): void {
+        this.view.setInt8(addr + 1, isFree ? 1 : 0);
+    }
+
+    private setPrev(addr: Address, prev: Address): void {
+        this.view.setInt8(addr + 2, prev);
+    }
+
+    private allocate(addr: Address): void {
+        this.view.setInt8(addr + 1, 0); // set is free
+    }
+
+    private getBlock(addr: Address): Block | null {
+        const size = this.view.getInt8(addr);
+
+        if (size == 0) {
+            return null;
+        }
+
+        return {
+            header: {
+                size,
+                isFree: this.view.getInt8(addr + 1) == 1,
+                prev: addr == 0 ? null : this.view.getInt8(addr + 2),
+            },
+            data: this.getData(size, addr),
+        };
+    }
+
+    private findFreeBlock(size: number): Address | null {
         if (this.topBlock == null) {
             return null; // no blocks have been created yet
         }
 
-        let curr_addr = this.topBlock;
+        let currAddr = this.topBlock;
 
-        while (curr_addr !== null) {
+        while (currAddr !== null) {
+            const block = this.getBlock(currAddr);
 
-            const block = this.get_block(curr_addr);
-
-            if (block.header.is_free && block.header.size >= size) {
-                return curr_addr;
+            if (block.header.isFree && block.header.size >= size) {
+                return currAddr;
             }
 
-            curr_addr = block.header.prev;
+            currAddr = block.header.prev;
         }
 
         return null;

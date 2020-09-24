@@ -1,4 +1,4 @@
-export const fill_string = (str: string, size: number, char: string) => {
+export const fillString = (str: string, size: number, char: string) => {
     if(str.length > size){
         return str.substr(-1, size);
     }
