@@ -40,6 +40,7 @@ export class Allocator {
         const newAddr = this.memAlloc(sizeBits);
 
         if (newAddr !== null) {
+            console.log('Reallocating', newAddr);
             this.memCopy(addr, newAddr);
             this.memFree(addr);
         }
@@ -52,13 +53,13 @@ export class Allocator {
         const prev = this.getBlock(block.header.prev);
         const next = this.getBlockNext(addr);
 
-        if (prev.header.isFree && next.header.isFree) {
+        if (prev !== null && next !== null && prev.header.isFree && next.header.isFree) {
             const newBlockSize = prev.header.size + block.header.size + next.header.size + HEADER_SIZE_BYTES * 2;
             this.expandBlock(block.header.prev, newBlockSize);
-        } else if (prev.header.isFree) {
+        } else if (prev !== null && prev.header.isFree) {
             const newBlockSize = prev.header.size + block.header.size + HEADER_SIZE_BYTES;
             this.expandBlock(block.header.prev, newBlockSize);
-        } else if (next.header.isFree) {
+        } else if (next !== null && next.header.isFree) {
             const newBlockSize = block.header.size + next.header.size + HEADER_SIZE_BYTES;
             this.expandBlock(addr, newBlockSize);
         } else {
@@ -229,7 +230,7 @@ export class Allocator {
 
         const nextAddr = this.getBlockNextAddress(addr);
 
-        if(nextAddr !== null){
+        if (nextAddr !== null) {
             this.setPrev(nextAddr, newBlockAddr);
         }
     }
@@ -240,7 +241,7 @@ export class Allocator {
         this.setPrev(addr, prev);
     }
 
-    private updatePointers(topAddr: Address, topSize: number){
+    private updatePointers(topAddr: Address, topSize: number) {
         this.topBlock = topAddr;
         this.stackStart += topSize + HEADER_SIZE_BYTES;
     }
@@ -283,18 +284,22 @@ export class Allocator {
             return null; // no blocks have been created yet
         }
 
-        let currAddr = this.topBlock;
+        let bestBlock = null,
+            blockAddress = null,
+            currAddr = this.topBlock;
 
         while (currAddr !== null) {
             const block = this.getBlock(currAddr);
 
-            if (block.header.isFree && block.header.size >= size) {
-                return currAddr;
+            if (block.header.isFree && block.header.size >= size &&
+                (bestBlock == null || bestBlock.header.size > block.header.size)) {
+                bestBlock = block;
+                blockAddress = currAddr;
             }
 
             currAddr = block.header.prev;
         }
 
-        return null;
+        return blockAddress;
     };
 }
