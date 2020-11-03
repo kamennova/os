@@ -1,8 +1,8 @@
-import { fillString } from "../helpers";
+import { Allocator } from "../common/Allocator";
+import { fillString } from "../common/helpers";
+import { Address } from "../common/types";
 
 const HEADER_SIZE_BYTES = 3;
-
-type Address = number;
 
 type BlockHeader = {
     size: number, // in bytes
@@ -22,7 +22,7 @@ type Block = {
  * 1 byte - previous block address
  * n bytes - data
  */
-export class Allocator {
+export class SimpleAllocator implements Allocator<number>{
     static getSizeBytes = (bits: number): number => Math.ceil(bits / 8);
 
     view: DataView;

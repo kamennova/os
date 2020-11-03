@@ -14,17 +14,19 @@ import {
 export class PagedAllocator implements Allocator<number[]> {
     public static readonly EmptyLink = -1;
     private static getBlockIndex = (addr: Address, classIndex: number) =>
-        (addr - PAGE_SIZE) / BLOCK_CLASSES[classIndex];
-    private static getBlockPageAddr = (index: number, classIndex: number) => index * BLOCK_CLASSES[classIndex];
+        (addr % PAGE_SIZE) / BLOCK_CLASSES[classIndex];
+    private static getBlockAddressInPage = (index: number, classIndex: number) => index * BLOCK_CLASSES[classIndex];
     private view: DataView;
+    private logging: boolean;
     private freePages: number[];
     private descPointers: Array<number | null>;
     private classPages: { [key: number]: Address | null };
     private readonly maxDescBlockSize: number;
 
-    constructor(buffer: ArrayBuffer, maxDescBlockSize = MAX_DESC_BLOCK_SIZE) {
+    constructor(buffer: ArrayBuffer, maxDescBlockSize = MAX_DESC_BLOCK_SIZE, logging = false) {
         this.maxDescBlockSize = maxDescBlockSize;
         this.view = new DataView(buffer);
+        this.logging = logging;
 
         const pagesNum = Math.floor(buffer.byteLength / PAGE_SIZE);
 
@@ -40,10 +42,6 @@ export class PagedAllocator implements Allocator<number[]> {
 
         this.classPages = {};
         BLOCK_CLASSES.forEach((_elem, i) => this.classPages[i] = null);
-
-        console.log('---Allocator info---');
-        console.log('Pages num:', pagesNum, '| Space, bytes:', buffer.byteLength);
-        console.log('--------------------');
     }
 
     private static getBlockClass(size: number) {
@@ -92,7 +90,7 @@ export class PagedAllocator implements Allocator<number[]> {
         return newAddr;
     }
 
-    public memFree(addr: Address) {
+    public memFree(addr: Address): void {
         const pageIndex = PagedAllocator.getPageIndexByAddress(addr),
             descAddr = this.getDescAddressOrThrowError(pageIndex);
 
@@ -231,7 +229,7 @@ export class PagedAllocator implements Allocator<number[]> {
         this.setBlockProperty("next", addr, next);
 
         if (PagedAllocator.isSetLink(next)) {
-            const nextAddr = PagedAllocator.getBlockPageAddr(next, classIndex) + PAGE_SIZE * pageIndex;
+            const nextAddr = PagedAllocator.getBlockAddressInPage(next, classIndex) + PAGE_SIZE * pageIndex;
             this.setBlockProperty("prev", nextAddr, PagedAllocator.getBlockIndex(addr, classIndex));
         }
     }
@@ -312,7 +310,9 @@ export class PagedAllocator implements Allocator<number[]> {
             return this.getFreeBlockAddress(classIndex + 1);
         }
 
-        console.log('No free space to accomodate ' + classIndex + ' class block');
+        if (this.logging) {
+            console.log('No free space to accomodate ' + classIndex + ' class block');
+        }
 
         return null;
     }

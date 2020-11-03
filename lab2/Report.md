@@ -19,7 +19,7 @@ Freeing: O(1)
 
 #### Service memory consumption rate
 
-Page description takes 5 bytes of memory:
+Class block page description takes 5 bytes of memory:
  * 1 byte - class
  * 1 byte - first free block index
  * 1 byte - number of free blocks
