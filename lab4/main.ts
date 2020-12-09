@@ -1,16 +1,21 @@
-import { hungaryAlgo } from "./MatrixAlgo";
+import { generateMatrix, hungaryAlgo } from "./MatrixAlgo";
 
-const readline = require("readline");
-const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-});
+const Values: any = {};
+const CheckSize = 200;
 
-rl.question("Enter matrix with size from 10 to 30: ", (input: string) => {
-    console.log(`Solution is ${hungaryAlgo([])}`);
-    rl.close();
-});
+for (let size = 10; size <= 30; size += 5) {
+    Values[size.toString()] = 0;
 
-rl.on("close", function () {
-    process.exit(0);
-});
+    for (let i = 0; i < CheckSize; i++) {
+        const m = generateMatrix(size);
+        const { conflict } = hungaryAlgo(m);
+
+        if (conflict > 0) {
+            Values[size.toString()]++;
+        }
+    }
+}
+
+
+const result = Object.keys(Values).map(key => ({ [key]: Math.floor(Values[key] / CheckSize * 100) }));
+console.log(result);

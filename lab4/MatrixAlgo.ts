@@ -1,27 +1,55 @@
 type Matrix = Array<number[]>;
 type Coordinate = { row: number, col: number };
 
-export const hungaryAlgo = (m: Matrix) => {
-    const r1 = reduceRowsByMin(m);
-    let curr = reduceColsByMin(r1);
+export const generateMatrix = (size: number) => {
+    const m: Matrix = [];
 
-    while (!isReady(curr)) {
-        const [rows, cols] = crossOutZeros(curr);
+    for (let i = 0; i < size; i++) {
+        const row = [];
 
-        if (rows.length === m.length || cols.length === m.length) {
-            console.log('Method failed!');
-            return;
+        for (let i = 0; i < size; i++) {
+            row.push(Math.floor(Math.random() * 20));
         }
-
-        const free = getFreeCoordinates(curr, rows, cols);
-        const withValues = free.map(({ row, col }) => ({ value: curr[row][col], coord: { row, col } }));
-        const min = Math.min.apply(null, withValues.map(({ value }) => value));
-        const m1 = extractFromCoords(curr, free, min);
-        const intersected = makeCoords(rows, cols);
-        curr = addToCoords(m1, intersected, min);
+        m.push(row);
     }
 
-    return solution(curr);
+    return m;
+};
+
+export const hungaryAlgo = (m: Matrix) => {
+    const r1 = reduceRowsByMin(m);
+    const curr = reduceColsByMin(r1);
+    const conflict = getConflict(m).length;
+
+    if (conflict > 0) {
+        return { solution: solution(algoStep(curr, 0)), conflict: conflict };
+    }
+
+    return { solution: solution(curr), conflict: conflict };
+};
+
+const algoStep = (curr: Matrix, stepNum: number): Matrix => {
+    const [rows, cols] = crossOutZeros(curr);
+
+    if (stepNum > 50 || rows.length === curr.length || cols.length === curr.length) {
+        console.log('Method failed!');
+        return [];
+    }
+
+    const free = getFreeCoordinates(curr, rows, cols);
+    const withValues = free.map(({ row, col }) => ({ value: curr[row][col], coord: { row, col } }));
+    const min = Math.min.apply(null, withValues.map(({ value }) => value));
+    const m1 = extractFromCoords(curr, free, min);
+    const intersected = makeCoords(rows, cols);
+    const upd = addToCoords(m1, intersected, min);
+
+    const conflict = getConflict(upd);
+
+    if (conflict.length === 0) {
+        return upd;
+    }
+
+    return algoStep(upd, stepNum + 1);
 };
 
 const solution = (m: Matrix): Coordinate[] => {
@@ -62,9 +90,16 @@ const getFreeCoordinates = (m: Matrix, rows: number[], cols: number[]): Coordina
     return makeCoords(freeRows, freeCols);
 };
 
-const makeCoords = (rows: number[], cols: number[]): Coordinate[] => rows.map(
-    row => cols.map(col => ({ row, col })))
-    .reduce((acc, val) => acc.concat(val));
+const makeCoords = (rows: number[], cols: number[]): Coordinate[] => {
+    const coords = rows.map(
+        row => cols.map(col => ({ row, col })));
+
+    if (coords.length === 0) {
+        return [];
+    }
+
+    return coords.reduce((acc, val) => acc.concat(val));
+};
 
 type Cross = { zeros: number, index: number };
 
@@ -116,23 +151,16 @@ const findMaxZerosRow = (m: Matrix, rowsOut: number[], colsOut: number[]): Cross
 
 const findMaxZerosCol = (m: Matrix, rowsOut: number[], colsOut: number[]) => findMaxZerosRow(rotateMatrix(m), colsOut, rowsOut);
 
-const isReady = (m: Matrix): boolean => {
+const getConflict = (m: Matrix): Coordinate[] => {
     const rowsI = getSinglesInRows(m);
     const colsI = getSinglesInCols(m);
 
-    return !coordinatesOverlap([...rowsI, ...colsI]);
+    return coordinatesOverlap([...rowsI, ...colsI]);
 };
 
-const coordinatesOverlap = (coords: Coordinate[]): boolean => {
-    for (let i = 0; i < coords.length; i++) {
-        if (coords.find(elem => elem.row === coords[i].row && elem.col !== coords[i].col ||
-            elem.col === coords[i].col && elem.row !== coords[i].row)) {
-            return true;
-        }
-    }
-
-    return false;
-};
+const coordinatesOverlap = (coords: Coordinate[]): Coordinate[] =>
+    coords.filter(c => coords.find(elem => elem.row === c.row && elem.col !== c.col ||
+        elem.col === c.col && elem.row !== c.row) !== undefined);
 
 const getSinglesInRows = (m: Matrix): Coordinate[] => m.map((row, i) => ({ row, i }))
     .filter(({ row }) => row.filter(elem => elem === 0).length === 1)
