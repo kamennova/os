@@ -1,12 +1,11 @@
 import { timeout } from "../common/helpers";
-import { Program, QUANTUM } from "./types";
+import { PACE, Program, QUANTUM } from "./types";
 
 export class ProgramRunner {
     private readonly pace: number;
 
-    constructor(pace: number = 0.4) {
+    constructor(pace: number = PACE) {
         this.pace = pace;
-
     }
 
     public async run(p: Program): Promise<boolean> {
@@ -19,6 +18,6 @@ export class ProgramRunner {
     }
 
     private getMs(ms: number) {
-        return this.pace * ms;
+        return ms / this.pace;
     }
 }

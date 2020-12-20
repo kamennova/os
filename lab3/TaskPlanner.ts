@@ -15,10 +15,20 @@ export class TaskPlanner {
     private readonly logging: boolean;
     private queues: [Queue, Queue, Queue] = [[], [], []];
     private isRunning: boolean = false;
+    private startTime: number;
+    private addedTime: { [key: string]: number } = {};
+    private runsHistory: { [key: string]: Array<{ start: number, end: number }> } = {};
+    private shouldEnd = false;
+    private onEnd: ((data: any) => void) | null = null;
 
-    constructor(runner: ProgramRunner, logging: boolean = false) {
+    constructor(runner: ProgramRunner, logging: boolean = false, onEnd: ((data: any) => void) | undefined = undefined) {
         this.runner = runner;
         this.logging = logging;
+        this.startTime = Date.now();
+
+        if (onEnd !== undefined) {
+            this.onEnd = onEnd;
+        }
     }
 
     private static getRunsNum(queueIndex: QueueIndex): number {
@@ -32,8 +42,14 @@ export class TaskPlanner {
         }
     }
 
+    public allowEnd() {
+        this.shouldEnd = true;
+    }
+
     public acceptProgram(program: Program) {
         this.queues[0].push({ program });
+        this.addedTime[program.id] = Date.now();
+        this.runsHistory[program.id] = [];
         this.log('Accepted ' + program.id);
 
         if (!this.isRunning) {
@@ -54,12 +70,38 @@ export class TaskPlanner {
         }
 
         this.isRunning = false;
+        if (this.shouldEnd) {
+            this.end();
+        }
+    }
+
+    public end() {
+        const endTime = Date.now();
+        const total = endTime - this.startTime;
+        const waste = (total - sum(Object.values(this.runsHistory).map(runs => sum(runs.map(r => r.end - r.start))))) / total;
+
+        const medWaitTime = this.getMediumWaitTime();
+        if (this.onEnd !== null) {
+            this.onEnd({ medWaitTime, waste });
+        }
     }
 
     private log(str: string) {
         if (this.logging) {
             console.log(str);
         }
+    }
+
+    private getMediumWaitTime() {
+        const programs = Object.keys(this.runsHistory);
+
+        return sum(programs.map(p => {
+            const runs = this.runsHistory[p];
+            const runTime = sum(runs.map(run => run.end - run.start));
+            const finishTime = runs[runs.length - 1].end;
+
+            return finishTime - this.addedTime[p] - runTime;
+        })) / programs.length;
     }
 
     private async runQueueCycle(qIndex: QueueIndex) {
@@ -80,7 +122,9 @@ export class TaskPlanner {
                 }
             }
 
-            this.dumpState();
+            if (this.logging) {
+                this.dumpState();
+            }
         }
     }
 
@@ -99,7 +143,9 @@ export class TaskPlanner {
         for (let i = 0; i < runsNum; i++) {
             this.log('running...');
 
+            const start = Date.now();
             const isFinished = await this.runner.run(task.program);
+            this.runsHistory[task.program.id].push({ start, end: Date.now() });
 
             if (isFinished) {
                 this.log('Finished program ' + task.program.id);
@@ -119,3 +165,5 @@ export class TaskPlanner {
         return this.queues[0].length > 0 || this.queues[1].length > 0 || this.queues[2].length > 0;
     }
 }
+
+const sum = (arr: number[]) => arr.length > 0 ? arr.reduce((acc, e) => acc + e) : 0;

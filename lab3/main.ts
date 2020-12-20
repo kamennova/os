@@ -1,25 +1,37 @@
 import { timeout } from "../common/helpers";
 import { ProgramRunner } from "./ProgramRunner";
 import { TaskPlanner } from "./TaskPlanner";
-import { Program } from "./types";
+import { PACE, Program } from "./types";
 
 const runner = new ProgramRunner();
-const planner = new TaskPlanner(runner, true);
 
-const generateProgs = async () => {
-    const startTime = Date.now();
-    const duration = 200000;
-    let i = 0;
+const generateProgs = async (intensity: number): Promise<{ medWaitTime: number, waste: number, progNum: number }> => new Promise(
+    async (resolve, reject) => {
+        const progNum = 50;
+        const planner = new TaskPlanner(runner, false, (data) => resolve({ ...data, progNum }));
+        const interval = intensity / progNum;
 
-    while ((Date.now() - startTime) < duration ) {
-        i++;
-        const time1 = Math.random() * 4000,
-            time2 = Math.floor(Math.random() * 10000);
+        const start = Date.now();
+        for (let i = 0; i < progNum; i++) {
+            i++;
+            const time2 = 5000 + Math.floor(Math.random() * 5000);
 
-        await timeout(time1);
-        const pr: Program = { estDuration: time2, id: i.toString() };
-        planner.acceptProgram(pr);
+            await timeout(interval / PACE);
+            const pr: Program = { estDuration: time2, id: i.toString() };
+            planner.acceptProgram(pr);
+        }
+        const end = Date.now();
+        console.log('Programs per milisecond: ', progNum / (end - start) * PACE);
+
+        planner.allowEnd();
+    });
+
+const getData = async (intensityMin: number, step: number, num: number) => {
+    for (let i = 0; i < num; i++) {
+        const { medWaitTime, progNum, waste } = await generateProgs(intensityMin - step * i);
+        console.log(progNum, medWaitTime, waste);
     }
 };
 
-generateProgs();
+getData(35000, 5000, 6);
+

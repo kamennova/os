@@ -8,3 +8,4 @@ export type Task = {
 }
 
 export const QUANTUM = 600;
+export const PACE = 10;
